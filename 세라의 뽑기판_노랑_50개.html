@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>세라의 뽑기판 — 1~50</title>
+<style>
+  :root{
+    --bg:#fff9e5;
+    --card:#fff0a5;
+    --card-hover:#ffe36b;
+    --accent:#ffbf00;
+    --text:#3a3300;
+    --border:#f5da72;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, Noto Sans KR, sans-serif;}
+  .wrap{max-width:980px; margin:0 auto; padding:20px 16px;}
+  h1{margin:6px 0 14px; text-align:center; font-size:1.8rem; font-weight:900}
+  .subtitle{margin:-6px 0 14px; text-align:center; font-weight:600}
+  .panel{background:white; border:1px solid var(--border); border-radius:16px; padding:14px;}
+  textarea{width:100%; min-height:96px; resize:vertical; border:1px solid var(--border); background:white; border-radius:12px; padding:12px; font-size:1rem;}
+  .btn{display:inline-flex; align-items:center; justify-content:center; gap:6px; height:44px; padding:0 18px; border-radius:12px; border:1px solid #f7d54f; background:linear-gradient(180deg,#fff,var(--card)); cursor:pointer; font-weight:800; color:#5a4500}
+  .btn.primary{background:linear-gradient(180deg,#fff,#ffe36b); border-color:var(--accent); color:#3b3000; text-shadow:0 1px 0 rgba(255,255,255,.4)}
+  .btn:active{transform:translateY(1px)}
+  .bar{display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; margin-top:12px}
+  .grid{display:grid; grid-template-columns:repeat(10,1fr); gap:12px; margin-top:18px}
+  .cell{position:relative; aspect-ratio:1/1; border:none; background:var(--card); color:#4d3c00; border-radius:14px; box-shadow:0 2px 0 #f0ce52; cursor:pointer; font-weight:900; font-size:1.05rem}
+  .cell:hover{background:var(--card-hover)}
+  .cell:disabled{cursor:default; opacity:1}
+  .cell .inside{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:8px; text-align:center}
+  .cell.revealed{background:white; border:2px solid var(--accent); box-shadow:none; color:#7d5c00}
+  .note{margin-top:8px; text-align:center; font-size:.95rem; color:#665200}
+  .pill{display:inline-block; margin-left:8px; padding:4px 10px; border-radius:999px; background:#fff; border:1px solid var(--border); font-size:.85rem}
+  .toast{position:fixed; left:50%; transform:translateX(-50%); bottom:22px; background:#222; color:#fff; padding:8px 12px; border-radius:999px; opacity:0; pointer-events:none; transition:.25s}
+  .toast.show{opacity:1; transform:translate(-50%,-6px)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>💛 세라의 뽑기판 💛</h1>
+    <div class="panel">
+      <p class="subtitle"><b>품목과 개수</b>를 입력하세요. (예: <em>꽝 40, 쿠폰 5, 젤리 5</em>) <span class="pill">합계가 50보다 적으면 남는 칸은 ‘꽝’</span></p>
+      <textarea id="input" placeholder="예시\n꽝 40, 쿠폰 5, 젤리 5\n또는 줄바꿈으로\n꽝 40\n쿠폰 5\n젤리 5"></textarea>
+      <div class="bar">
+        <button id="startBtn" class="btn primary">시작하기</button>
+        <button id="resetOpenBtn" class="btn">열림 초기화</button>
+        <button id="resetAllBtn" class="btn">전체 초기화</button>
+      </div>
+      <p class="note">1~50 번호판을 클릭하면 열립니다. (상태는 브라우저에 자동 저장)</p>
+    </div>
+
+    <div id="board" class="grid" aria-live="polite"></div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+<script>
+  const KEY_ASSIGN='yellow_board_assign_v2';
+  const KEY_INPUT='yellow_board_input_v2';
+  const N=50;
+  const DEFAULT_LOSE='꽝';
+
+  const $=(s,e=document)=>e.querySelector(s);
+  const toast=(m)=>{const t=$("#toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1400);};
+
+  function buildBoard(assign){
+    const root=$("#board");
+    root.innerHTML='';
+    for(let i=1;i<=N;i++){
+      const a=assign?.[i];
+      const revealed=!!a?.open;
+      const prize=a?.prize ?? null;
+      const btn=document.createElement('button');
+      btn.className='cell'+(revealed?' revealed':'');
+      btn.setAttribute('data-idx', i);
+      btn.innerHTML='<div class="inside">'+(revealed?escapeHtml(prize??DEFAULT_LOSE):i)+'</div>';
+      root.appendChild(btn);
+    }
+  }
+
+  function parseInput(text){
+    const raw=text.replace(/[,]+/g,'\n').split(/\n+/).map(s=>s.trim()).filter(Boolean);
+    const items=[];
+    raw.forEach(line=>{
+      const m=line.match(/^(.+?)\s+(\d+)$/);
+      if(m){ items.push({name:m[1].trim(), count:parseInt(m[2],10)}); }
+    });
+    return items;
+  }
+
+  function makeAssignment(items){
+    const pool=[];
+    items.forEach(it=>{ for(let i=0;i<it.count;i++) pool.push(it.name); });
+    if(pool.length<N){ for(let i=0;i<N-pool.length;i++) pool.push(DEFAULT_LOSE); }
+    if(pool.length>N){ return {error:'합계가 50을 초과했어요. 개수를 줄여주세요.'}; }
+    for(let i=pool.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [pool[i],pool[j]]=[pool[j],pool[i]]; }
+    const out={};
+    for(let i=1;i<=N;i++){ out[i]={prize:pool[i-1], open:false}; }
+    return {data:out};
+  }
+
+  function saveAssign(a){ localStorage.setItem(KEY_ASSIGN, JSON.stringify(a)); }
+  function loadAssign(){ try{return JSON.parse(localStorage.getItem(KEY_ASSIGN)||'null');}catch{return null;} }
+
+  function saveInput(text){ localStorage.setItem(KEY_INPUT, text); }
+  function loadInput(){ return localStorage.getItem(KEY_INPUT) || ''; }
+
+  $("#board").addEventListener('click', (e)=>{
+    const cell=e.target.closest('.cell'); if(!cell) return;
+    const idx=parseInt(cell.dataset.idx,10);
+    let a=loadAssign();
+    if(!a){ toast('먼저 “시작하기”로 배치해 주세요.'); return; }
+    if(!a[idx]) a[idx]={prize:DEFAULT_LOSE, open:true};
+    a[idx].open=true; saveAssign(a);
+    cell.classList.add('revealed');
+    cell.innerHTML='<div class="inside">'+escapeHtml(a[idx].prize??DEFAULT_LOSE)+'</div>';
+  });
+
+  $("#startBtn").addEventListener('click', ()=>{
+    const text=$("#input").value.trim();
+    saveInput(text);
+    const items=parseInput(text);
+    const res=makeAssignment(items);
+    if(res.error){ toast(res.error); return; }
+    saveAssign(res.data);
+    buildBoard(res.data);
+    toast('배치 완료! 숫자를 눌러 열어보세요.');
+  });
+
+  $("#resetOpenBtn").addEventListener('click', ()=>{
+    const a=loadAssign(); if(!a){ toast('배치된 내용이 없어요.'); return; }
+    for(let i=1;i<=N;i++){ if(a[i]) a[i].open=false; }
+    saveAssign(a); buildBoard(a); toast('열림 상태를 초기화했어요.');
+  });
+
+  $("#resetAllBtn").addEventListener('click', ()=>{
+    if(!confirm('전체 초기화할까요? 입력·배치·열림이 모두 삭제됩니다.')) return;
+    localStorage.removeItem(KEY_ASSIGN);
+    localStorage.removeItem(KEY_INPUT);
+    $("#input").value='';
+    buildBoard(null);
+  });
+
+  function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+
+  (function init(){
+    $("#input").value=loadInput();
+    buildBoard(loadAssign());
+  })();
+</script>
+</body>
+</html>
